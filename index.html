@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>e-Lejer Pinjaman KESEDAR v2.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+        
+        body { font-family: 'Inter', sans-serif; }
+        .icon { display: inline-block; vertical-align: middle; stroke-width: 2; }
+
+        /* Style untuk status baris */
+        .row-overdue { background-color: #fef2f2 !important; border-left: 4px solid #ef4444; }
+        .row-current { background-color: #fffbeb !important; border-left: 4px solid #f59e0b; }
+        
+        /* Media Cetak */
+        @media print {
+            body { background: white; }
+            .no-print { display: none !important; }
+            #detail-view { position: absolute; left: 0; top: 0; width: 100%; visibility: visible; }
+            #app > *:not(#detail-view) { display: none; }
+            .shadow-lg, .rounded-xl { box-shadow: none !important; border: 1px solid #ddd; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+    <div id="app" class="p-4 md:p-8">
+        <div class="max-w-7xl mx-auto">
+            
+            <div id="list-view" class="space-y-6">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">e-Lejer KESEDAR</h1>
+                        <p class="text-gray-500">Sistem Pengurusan Pinjaman Peribadi</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="backupData()" class="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition shadow-sm text-sm">
+                            <i data-lucide="database" class="w-4 h-4"></i> Backup JSON
+                        </button>
+                        <label class="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition shadow-sm text-sm cursor-pointer">
+                            <i data-lucide="upload" class="w-4 h-4"></i> Restore
+                            <input type="file" id="restoreFile" class="hidden" accept=".json" onchange="restoreData(event)">
+                        </label>
+                        <button onclick="showForm(null)" class="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow-md font-bold text-sm">
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i> Tambah Peminjam
+                        </button>
+                    </div>
+                </div>
+
+                <div id="stat-container"></div>
+
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="p-4 border-b border-gray-100 bg-gray-50/50">
+                        <div class="relative">
+                            <i data-lucide="search" class="absolute left-3 top-3 w-5 h-5 text-gray-400"></i>
+                            <input type="text" id="searchInput" oninput="handleSearch()" placeholder="Cari nama, No. KP atau jenis pinjaman..." class="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
+                        </div>
+                    </div>
+                    <div id="senarai-peminjam-container"></div>
+                </div>
+            </div>
+
+            <div id="form-view" class="hidden">
+                <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
+                    <div class="flex justify-between items-center mb-8">
+                        <h2 id="form-title" class="text-2xl font-bold text-gray-800">Borang Peminjam</h2>
+                        <button onclick="showList()" class="text-gray-400 hover:text-gray-600"><i data-lucide="x-circle" class="w-8 h-8"></i></button>
+                    </div>
+                    <form id="pinjaman-form" onsubmit="handleSimpan(event)" class="space-y-6">
+                        <input type="hidden" id="pinjaman-id" name="id">
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Nama Peminjam *</label>
+                                <input type="text" id="namaPeminjam" name="namaPeminjam" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:bg-white transition">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">No. KP (000000-00-0000)</label>
+                                <input type="text" id="noKP" name="noKP" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg focus:bg-white transition">
+                            </div>
+                        </div>
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Jumlah Pinjaman (RM)</label>
+                                <input type="number" id="jumlahPinjaman" name="jumlahPinjaman" value="10000" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Kadar Faedah (% Setahun)</label>
+                                <input type="number" step="0.1" id="kadarFaedah" name="kadarFaedah" value="4.0" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Tempoh (Bulan)</label>
+                                <input type="number" id="tempohBulan" name="tempohBulan" value="60" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Tarikh Mula Pinjaman</label>
+                                <input type="date" id="tarikh_mula" name="tarikh_mula" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg">
+                            </div>
+                        </div>
+                        <div class="p-4 bg-indigo-50 rounded-xl">
+                            <p id="auto-kira-info" class="text-indigo-700 font-bold text-center"></p>
+                        </div>
+                        <div class="flex gap-4 pt-4">
+                            <button type="submit" class="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg transition">Simpan Rekod</button>
+                            <button type="button" onclick="showList()" class="px-8 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition">Batal</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div id="detail-view" class="hidden space-y-6"></div>
+
+        </div>
+    </div>
+
+    <script>
+        let senaraiPeminjam = [];
+        let peminjamDipilih = null;
+        const STORAGE_KEY = 'kesedar_v2_data';
+
+        // --- MOCK STORAGE API ---
+        const storage = {
+            save: async (data) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data)),
+            load: async () => JSON.parse(localStorage.getItem(STORAGE_KEY)) || []
+        };
+
+        // --- KEWANGAN LOGIK ---
+        const hitungBayaranBulanan = (p, r_annual, n) => {
+            const r = (r_annual / 100) / 12;
+            if (r === 0) return p / n;
+            return (p * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+        };
+
+        const generateJadual = (data) => {
+            const jadual = [];
+            let baki = parseFloat(data.jumlahPinjaman);
+            const r = (parseFloat(data.kadarFaedah) / 100) / 12;
+            const bayaran = hitungBayaranBulanan(baki, data.kadarFaedah, data.tempohBulan);
+
+            for (let i = 1; i <= data.tempohBulan; i++) {
+                const faedah = baki * r;
+                let prinsipal = bayaran - faedah;
+                if (i === data.tempohBulan) { prinsipal = baki; baki = 0; }
+                else { baki -= prinsipal; }
+                
+                const d = new Date(data.tarikh_mula);
+                d.setMonth(d.getMonth() + i);
+                
+                jadual.push({
+                    bulan: i,
+                    tarikh: d.toISOString().split('T')[0],
+                    bayaran, prinsipal, faedah, baki: Math.max(0, baki)
+                });
+            }
+            return jadual;
+        };
+
+        const hitungBulanPinjamanSemasa = (tarikhMula) => {
+            const mula = new Date(tarikhMula);
+            const sekarang = new Date();
+            return (sekarang.getFullYear() - mula.getFullYear()) * 12 + (sekarang.getMonth() - mula.getMonth());
+        };
+
+        const tentukanStatusPinjaman = (peminjam) => {
+            const bulanBerlalu = hitungBulanPinjamanSemasa(peminjam.tarikh_mula);
+            const bayaranDibuat = (peminjam.bayaranRekod || []).length;
+            if (bayaranDibuat >= peminjam.tempohBulan) return { label: 'Selesai', class: 'bg-green-100 text-green-700' };
+            if (bayaranDibuat < (bulanBerlalu)) return { label: 'Tunggakan', class: 'bg-red-100 text-red-700' };
+            return { label: 'Aktif', class: 'bg-blue-100 text-blue-700' };
+        };
+
+        // --- ACTIONS ---
+        const loadSenaraiPeminjam = async () => {
+            senaraiPeminjam = await storage.load();
+            kemaskiniDashboard();
+            renderListView();
+        };
+
+        const handleSimpan = async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const data = Object.fromEntries(fd.entries());
+            
+            data.id = data.id || Date.now().toString();
+            data.jumlahPinjaman = parseFloat(data.jumlahPinjaman);
+            data.kadarFaedah = parseFloat(data.kadarFaedah);
+            data.tempohBulan = parseInt(data.tempohBulan);
+            
+            const index = senaraiPeminjam.findIndex(p => p.id === data.id);
+            if (index > -1) {
+                data.bayaranRekod = senaraiPeminjam[index].bayaranRekod;
+                senaraiPeminjam[index] = data;
+            } else {
+                data.bayaranRekod = [];
+                senaraiPeminjam.push(data);
+            }
+
+            await storage.save(senaraiPeminjam);
+            showList();
+            loadSenaraiPeminjam();
+        };
+
+        const rekodBayaran = async (bulan) => {
+            if (!peminjamDipilih.bayaranRekod.some(b => b.bulan === bulan)) {
+                peminjamDipilih.bayaranRekod.push({ bulan, tarikh: new Date().toISOString() });
+                await storage.save(senaraiPeminjam);
+                renderDetailView();
+            }
+        };
+
+        // --- VIEWS ---
+        const showList = () => {
+            document.getElementById('list-view').classList.remove('hidden');
+            document.getElementById('form-view').classList.add('hidden');
+            document.getElementById('detail-view').classList.add('hidden');
+            lucide.createIcons();
+        };
+
+        const showForm = (p) => {
+            document.getElementById('list-view').classList.add('hidden');
+            document.getElementById('form-view').classList.remove('hidden');
+            const f = document.getElementById('pinjaman-form');
+            f.reset();
+            if (p) {
+                document.getElementById('pinjaman-id').value = p.id;
+                document.getElementById('namaPeminjam').value = p.namaPeminjam;
+                document.getElementById('jumlahPinjaman').value = p.jumlahPinjaman;
+                document.getElementById('tempohBulan').value = p.tempohBulan;
+                document.getElementById('kadarFaedah').value = p.kadarFaedah;
+                document.getElementById('tarikh_mula').value = p.tarikh_mula;
+            }
+        };
+
+        const showDetail = (id) => {
+            peminjamDipilih = senaraiPeminjam.find(p => p.id === id);
+            document.getElementById('list-view').classList.add('hidden');
+            document.getElementById('detail-view').classList.remove('hidden');
+            renderDetailView();
+        };
+
+        const renderListView = (data = senaraiPeminjam) => {
+            const container = document.getElementById('senarai-peminjam-container');
+            let html = `<table class="w-full text-left border-collapse">
+                <thead class="bg-gray-50 text-gray-600 text-xs uppercase font-bold">
+                    <tr>
+                        <th class="px-6 py-4">Peminjam</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4 text-right">Prinsipal</th>
+                        <th class="px-6 py-4 text-center">Tindakan</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">`;
+            
+            data.forEach(p => {
+                const stat = tentukanStatusPinjaman(p);
+                html += `<tr class="hover:bg-gray-50 transition">
+                    <td class="px-6 py-4">
+                        <div class="font-bold text-gray-800">${p.namaPeminjam}</div>
+                        <div class="text-xs text-gray-400">${p.noKP || 'Tiada KP'}</div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <span class="px-3 py-1 rounded-full text-xs font-black ${stat.class}">${stat.label}</span>
+                    </td>
+                    <td class="px-6 py-4 text-right font-mono text-sm text-gray-600">RM ${p.jumlahPinjaman.toLocaleString()}</td>
+                    <td class="px-6 py-4 text-center">
+                        <button onclick="showDetail('${p.id}')" class="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg"><i data-lucide="eye" class="w-5 h-5"></i></button>
+                        <button onclick="showForm(senaraiPeminjam.find(x=>x.id==='${p.id}'))" class="p-2 text-amber-600 hover:bg-amber-50 rounded-lg"><i data-lucide="edit-3" class="w-5 h-5"></i></button>
+                    </td>
+                </tr>`;
+            });
+            html += `</tbody></table>`;
+            container.innerHTML = html;
+            lucide.createIcons();
+        };
+
+        const renderDetailView = () => {
+            const p = peminjamDipilih;
+            const jadual = generateJadual(p);
+            const bayaran = hitungBayaranBulanan(p.jumlahPinjaman, p.kadarFaedah, p.tempohBulan);
+            const bulanSemasa = hitungBulanPinjamanSemasa(p.tarikh_mula);
+
+            let html = `
+                <div class="no-print flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
+                    <button onclick="showList()" class="flex items-center gap-2 text-gray-600 hover:text-indigo-600 font-bold"><i data-lucide="arrow-left" class="w-5 h-5"></i> Kembali</button>
+                    <div class="flex gap-2">
+                        <button onclick="window.print()" class="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg"><i data-lucide="printer" class="w-4 h-4"></i> Cetak</button>
+                    </div>
+                </div>
+
+                <div class="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+                    <div class="hidden print:block text-center border-b-2 border-black pb-4 mb-6">
+                        <h1 class="text-2xl font-bold uppercase">Penyata Lejer Pinjaman KESEDAR</h1>
+                        <p>Tarikh Jana: ${new Date().toLocaleDateString('ms-MY')}</p>
+                    </div>
+                    
+                    <div class="grid md:grid-cols-2 gap-8 mb-8">
+                        <div>
+                            <h3 class="text-gray-400 text-xs font-bold uppercase mb-2">Maklumat Peminjam</h3>
+                            <p class="text-xl font-bold text-gray-800">${p.namaPeminjam}</p>
+                            <p class="text-gray-500">${p.noKP || '-'}</p>
+                        </div>
+                        <div class="text-right">
+                            <h3 class="text-gray-400 text-xs font-bold uppercase mb-2">Ansuran Bulanan</h3>
+                            <p class="text-3xl font-black text-indigo-600">RM ${bayaran.toFixed(2)}</p>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="bg-indigo-600 text-white">
+                                    <th class="p-3 text-left">Bulan</th>
+                                    <th class="p-3 text-left">Tarikh Jelas</th>
+                                    <th class="p-3 text-right">Prinsipal</th>
+                                    <th class="p-3 text-right">Faedah</th>
+                                    <th class="p-3 text-right">Baki Pinjaman</th>
+                                    <th class="p-3 text-center no-print">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">`;
+
+            jadual.forEach(j => {
+                const sudah = p.bayaranRekod.some(b => b.bulan === j.bulan);
+                const isOverdue = j.bulan <= bulanSemasa && !sudah;
+                const rowClass = sudah ? 'bg-green-50' : (isOverdue ? 'row-overdue' : '');
+                
+                html += `<tr class="${rowClass}">
+                    <td class="p-3 font-bold">${j.bulan}</td>
+                    <td class="p-3">${j.tarikh}</td>
+                    <td class="p-3 text-right font-mono">RM ${j.prinsipal.toFixed(2)}</td>
+                    <td class="p-3 text-right font-mono">RM ${j.faedah.toFixed(2)}</td>
+                    <td class="p-3 text-right font-mono font-bold">RM ${j.baki.toFixed(2)}</td>
+                    <td class="p-3 text-center no-print">
+                        ${sudah ? '<span class="text-green-600 font-bold">DIBAYAR</span>' : 
+                        `<button onclick="rekodBayaran(${j.bulan})" class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-lg font-bold text-xs hover:bg-indigo-600 hover:text-white transition">TANDA BAYAR</button>`}
+                    </td>
+                </tr>`;
+            });
+
+            html += `</tbody></table></div>
+                    <div class="hidden print:flex justify-between mt-12">
+                        <div class="text-center"><div class="border-t border-black w-40 mt-12"></div><p class="text-xs mt-2">Pegawai Pelulus</p></div>
+                        <div class="text-center"><div class="border-t border-black w-40 mt-12"></div><p class="text-xs mt-2">Peminjam</p></div>
+                    </div>
+                </div>`;
+            document.getElementById('detail-view').innerHTML = html;
+            lucide.createIcons();
+        };
+
+        const kemaskiniDashboard = () => {
+            const totalP = senaraiPeminjam.length;
+            const totalD = senaraiPeminjam.reduce((s, p) => s + p.jumlahPinjaman, 0);
+            const totalT = senaraiPeminjam.filter(p => tentukanStatusPinjaman(p).label === 'Tunggakan').length;
+            
+            document.getElementById('stat-container').innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                        <p class="text-gray-400 text-xs font-bold uppercase">Peminjam Aktif</p>
+                        <p class="text-2xl font-black text-gray-800">${totalP}</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                        <p class="text-gray-400 text-xs font-bold uppercase">Dana Dipinjam</p>
+                        <p class="text-2xl font-black text-indigo-600">RM ${totalD.toLocaleString()}</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl border border-red-100 shadow-sm">
+                        <p class="text-red-400 text-xs font-bold uppercase">Kes Tunggakan</p>
+                        <p class="text-2xl font-black text-red-600">${totalT}</p>
+                    </div>
+                </div>
+            `;
+        };
+
+        const handleSearch = () => {
+            const q = document.getElementById('searchInput').value.toLowerCase();
+            const f = senaraiPeminjam.filter(p => p.namaPeminjam.toLowerCase().includes(q) || (p.noKP && p.noKP.includes(q)));
+            renderListView(f);
+        };
+
+        // --- BACKUP & RESTORE ---
+        window.backupData = () => {
+            const blob = new Blob([JSON.stringify(senaraiPeminjam)], {type: 'application/json'});
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `backup_kesedar_${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+        };
+
+        window.restoreData = (e) => {
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+                const data = JSON.parse(ev.target.result);
+                if(confirm(`Restore ${data.length} rekod?`)) {
+                    await storage.save(data);
+                    loadSenaraiPeminjam();
+                }
+            };
+            reader.readAsText(e.target.files[0]);
+        };
+
+        // Initialize
+        window.onload = loadSenaraiPeminjam;
+    </script>
+</body>
+</html>
