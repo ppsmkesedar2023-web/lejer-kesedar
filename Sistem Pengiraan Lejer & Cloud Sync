@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>e-Lejer KESEDAR v3.8 - Storan Google Sheets</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght=300;400;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .row-overdue { background-color: #fef2f2 !important; border-left: 4px solid #ef4444; }
+        .row-paid { background-color: #f0fdf4 !important; }
+        
+        @media print {
+            body * { visibility: hidden; }
+            #detail-view, #detail-view * { visibility: visible; }
+            #detail-view { position: absolute; left: 0; top: 0; width: 100%; display: block !important; background: white !important; }
+            .no-print { display: none !important; }
+            table { border-collapse: collapse !important; width: 100% !important; }
+            th, td { border: 1px solid #333 !important; padding: 6px !important; font-size: 9px !important; }
+            .print-footer { display: flex !important; justify-content: space-between; margin-top: 50px; }
+            .signature-box { border-top: 1px solid black; width: 200px; text-align: center; padding-top: 5px; font-size: 10px; }
+        }
+        .print-only { display: none; }
+        @media print { .print-only { display: block !important; } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+    <div id="app" class="p-4 md:p-8">
+        <div class="max-w-7xl mx-auto">
+            
+            <div id="list-view" class="space-y-6">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">e-Lejer KESEDAR</h1>
+                        <p class="text-gray-500 text-sm">Sistem Pengiraan Lejer & Cloud Sync</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <a href="https://sheets.google.com" target="_blank" class="flex items-center gap-2 px-4 py-2 bg-green-700 text-white rounded-lg text-sm shadow hover:bg-green-800 transition">
+                            <i data-lucide="file-text" class="w-4 h-4"></i> Buka Google Sheet
+                        </a>
+                        
+                        <button onclick="exportToCSV()" class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm shadow hover:bg-blue-700 transition"><i data-lucide="file-spreadsheet" class="w-4 h-4"></i> CSV</button>
+                        <button onclick="backupData()" class="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm shadow hover:bg-emerald-700 transition"><i data-lucide="download" class="w-4 h-4"></i> Backup JSON</button>
+                        <label class="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm shadow hover:bg-orange-600 transition cursor-pointer">
+                            <i data-lucide="upload" class="w-4 h-4"></i> Restore JSON
+                            <input type="file" id="restoreFile" class="hidden" accept=".json" onchange="restoreData(event)">
+                        </label>
+                        <button onclick="showForm(null)" class="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm shadow-md hover:bg-indigo-700 transition"><i data-lucide="plus-circle" class="w-4 h-4"></i> Tambah</button>
+                    </div>
+                </div>
+
+                <div id="stat-container" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+
+                <div class="grid lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
+                        <div class="p-4 bg-gray-50/50 border-b flex justify-between items-center gap-4">
+                            <input type="text" id="searchInput" oninput="handleSearch()" placeholder="Cari peminjam berdasarkan nama atau No. KP..." class="w-full px-4 py-2 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                            <button onclick="loadSenaraiPeminjam()" title="Muat Semula Cloud Data" class="p-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl transition"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
+                        </div>
+                        <div id="senarai-peminjam-container"></div>
+                    </div>
+                    
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[400px]">
+                        <div class="p-3 bg-gray-50 border-b flex justify-between items-center text-xs font-bold text-gray-600 uppercase">
+                            <span>Audit Log</span>
+                            <button onclick="padamLog()" class="text-red-500 hover:text-red-700 font-normal normal-case flex items-center gap-1"><i data-lucide="trash" class="w-3 h-3"></i> Kosongkan</button>
+                        </div>
+                        <div id="log-container" class="overflow-y-auto flex-1 divide-y divide-gray-100"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="form-view" class="hidden">
+                <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-xl p-8 border">
+                    <div class="flex justify-between items-center mb-6 border-b pb-4">
+                        <h2 class="text-xl font-bold text-gray-800">Borang Maklumat Pinjaman</h2>
+                        <button onclick="showList()"><i data-lucide="x-circle" class="w-6 h-6 text-gray-400 hover:text-gray-600 transition"></i></button>
+                    </div>
+                    <form id="pinjaman-form" onsubmit="handleSimpan(event)" class="space-y-4">
+                        <input type="hidden" id="pinjaman-id" name="id">
+                        <div class="grid md:grid-cols-2 gap-4 text-sm">
+                            <div class="flex flex-col gap-1">
+                                <label class="text-xs font-bold text-gray-600">Nama Peminjam</label>
+                                <input type="text" id="namaPeminjam" name="namaPeminjam" placeholder="Nama Penuh" required class="p-2 border rounded bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="text-xs font-bold text-gray-600">No. Kad Pengenalan</label>
+                                <input type="text" id="noKP" name="noKP" placeholder="Contoh: 88010211xxxx" class="p-2 border rounded bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="text-xs font-bold text-gray-600">Jumlah Prinsipal (RM)</label>
+                                <input type="number" id="jumlahPinjaman" name="jumlahPinjaman" step="0.01" placeholder="0.00" required class="p-2 border rounded bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="text-xs font-bold text-gray-600">Kadar Faedah Tahunan (%)</label>
+                                <input type="number" step="0.01" id="kadarFaedah" name="kadarFaedah" placeholder="Contoh: 4.5" required class="p-2 border rounded bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="text-xs font-bold text-gray-600">Tempoh Pinjaman (Bulan)</label>
+                                <input type="number" id="tempohBulan" name="tempohBulan" placeholder="Contoh: 24" required class="p-2 border rounded bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="text-xs font-bold text-gray-600">Tarikh Mula Bayaran</label>
+                                <input type="date" id="tarikh_mula" name="tarikh_mula" required class="p-2 border rounded bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                        </div>
+                        <div id="auto-kira-info" class="p-3 bg-indigo-50 text-indigo-700 font-bold text-center text-sm rounded-lg min-h-[40px] hidden"></div>
+                        <button type="submit" class="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold uppercase shadow-lg hover:bg-indigo-700 transition">Simpan Rekod & Sinkronisasi</button>
+                    </form>
+                </div>
+            </div>
+
+            <div id="detail-view" class="hidden"></div>
+
+        </div>
+    </div>
+
+    <script>
+        let senaraiPeminjam = [];
+        const STORAGE_KEY = 'kesedar_v3_data';
+        const LOG_KEY = 'kesedar_logs';
+        
+        // Menggunakan Web App API URL yang valid milik Anda untuk eksekusi cloud
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzoAvzcohKJTqvlGWzvnrafp2584UpdJdN0LVpTUjbI9VzqThJIeFJUVvJzJzE-qaknVw/exec';
+
+        const storage = {
+            save: async (data) => {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+                    
+                    await fetch(GOOGLE_SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                    console.log("Data disinkronisasi ke Google Sheets.");
+                } catch (e) {
+                    console.error("Gagal menyimpan ke Google Sheets:", e);
+                }
+            },
+            load: async () => {
+                try {
+                    const res = await fetch(GOOGLE_SCRIPT_URL);
+                    const data = await res.json();
+                    if (data && Array.isArray(data)) {
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+                        return data;
+                    }
+                } catch (e) {
+                    console.warn("Gagal mengambil data Cloud, beralih ke data offline lokal:", e);
+                }
+                return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+            }
+        };
+
+        const tambahLog = (aktiviti, peminjam) => {
+            const logs = JSON.parse(localStorage.getItem(LOG_KEY)) || [];
+            logs.unshift({ tarikh: new Date().toLocaleString('ms-MY'), aktiviti, peminjam });
+            localStorage.setItem(LOG_KEY, JSON.stringify(logs.slice(0, 50)));
+            renderLogs();
+        };
+
+        const hitungBayaranBulanan = (p, r_annual, n) => {
+            const r = (r_annual / 100) / 12;
+            if (r === 0) return p / n;
+            return (p * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+        };
+
+        const tentukanStatusPinjaman = (peminjam) => {
+            const mula = new Date(peminjam.tarikh_mula);
+            const sekarang = new Date();
+            const bulanBerlalu = (sekarang.getFullYear() - mula.getFullYear()) * 12 + (sekarang.getMonth() - mula.getMonth());
+            const bayaranDibuat = (peminjam.bayaranRekod || []).length;
+            
+            if (bayaranDibuat >= parseInt(peminjam.tempohBulan)) return { label: 'Selesai', class: 'bg-green-100 text-green-700' };
+            if (bayaranDibuat < bulanBerlalu) return { label: 'Tunggakan', class: 'bg-red-100 text-red-700' };
+            return { label: 'Aktif', class: 'bg-blue-100 text-blue-700' };
+        };
+
+        const loadSenaraiPeminjam = async () => {
+            const container = document.getElementById('senarai-peminjam-container');
+            container.innerHTML = `<div class="p-8 text-center text-indigo-600 text-sm font-semibold animate-pulse">Memuatkan data terkini dari Google Sheets...</div>`;
+            
+            senaraiPeminjam = await storage.load();
+            renderStats(); 
+            renderListView(); 
+            renderLogs();
+        };
+
+        const renderStats = () => {
+            const totalD = senaraiPeminjam.reduce((s, p) => s + parseFloat(p.jumlahPinjaman || 0), 0);
+            const totalT = senaraiPeminjam.filter(p => tentukanStatusPinjaman(p).label === 'Tunggakan').length;
+            document.getElementById('stat-container').innerHTML = `
+                <div class="bg-white p-5 rounded-2xl border shadow-sm"><p class="text-[10px] uppercase font-bold text-gray-400">Total Peminjam</p><p class="text-2xl font-black text-gray-800">${senaraiPeminjam.length}</p></div>
+                <div class="bg-white p-5 rounded-2xl border shadow-sm"><p class="text-[10px] uppercase font-bold text-gray-400">Prinsipal Pokok</p><p class="text-2xl font-black text-indigo-600">RM ${totalD.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p></div>
+                <div class="bg-white p-5 rounded-2xl border border-red-100 shadow-sm"><p class="text-[10px] uppercase font-bold text-red-400">Kes Tunggakan</p><p class="text-2xl font-black text-red-600">${totalT}</p></div>
+            `;
+        };
+
+        const renderListView = (data = senaraiPeminjam) => {
+            const container = document.getElementById('senarai-peminjam-container');
+            if (data.length === 0) {
+                container.innerHTML = `<div class="p-8 text-center text-gray-400 text-sm">Tiada rekod peminjam ditemui.</div>`;
+                return;
+            }
+            
+            let html = `<table class="w-full text-left text-sm min-w-[600px]"><tbody class="divide-y divide-gray-100">`;
+            data.forEach(p => {
+                const stat = tentukanStatusPinjaman(p);
+                html += `<tr class="hover:bg-gray-50/50 transition">
+                    <td class="px-6 py-4 font-bold text-gray-800">${p.namaPeminjam}<div class="text-[10px] font-normal text-gray-400">${p.noKP || '-'}</div></td>
+                    <td class="px-6 py-4"><span class="px-2 py-0.5 rounded-full text-[9px] font-black ${stat.class}">${stat.label}</span></td>
+                    <td class="px-6 py-4 text-right font-mono font-bold text-gray-700">RM ${parseFloat(p.jumlahPinjaman).toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                    <td class="px-6 py-4 text-right flex justify-end gap-2">
+                        <button onclick="showDetail('${p.id}')" title="Lihat Penyata" class="p-2 text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-600 hover:text-white transition"><i data-lucide="eye" class="w-4 h-4"></i></button>
+                        <button onclick="showForm('${p.id}')" title="Kemaskini Profil" class="p-2 text-amber-600 bg-amber-50 rounded-lg hover:bg-amber-600 hover:text-white transition"><i data-lucide="edit-3" class="w-4 h-4"></i></button>
+                        <button onclick="hapusPeminjam('${p.id}')" title="Padam Rekod" class="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-600 hover:text-white transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                    </td>
+                </tr>`;
+            });
+            container.innerHTML = html + `</tbody></table>`;
+            lucide.createIcons();
+        };
+
+        const renderLogs = () => {
+            const logs = JSON.parse(localStorage.getItem(LOG_KEY)) || [];
+            const container = document.getElementById('log-container');
+            if(logs.length === 0) {
+                container.innerHTML = `<div class="p-4 text-center text-gray-400 text-xs">Tiada log aktiviti.</div>`;
+                return;
+            }
+            container.innerHTML = logs.map(l => `<div class="p-2.5 text-[11px] hover:bg-gray-50"><span class="text-gray-400 font-mono">${l.tarikh}</span><br><b class="text-gray-700">${l.peminjam}</b>: <span class="text-gray-600">${l.aktiviti}</span></div>`).join('');
+        };
+
+        const showDetail = (id) => {
+            window.peminjamAktifID = id;
+            const p = senaraiPeminjam.find(x => x.id === id);
+            if (!p) return;
+            
+            document.getElementById('list-view').classList.add('hidden');
+            const view = document.getElementById('detail-view');
+            view.classList.remove('hidden');
+            
+            const ansuran = hitungBayaranBulanan(p.jumlahPinjaman, p.kadarFaedah, p.tempohBulan);
+            const jumlahPelunasan = ansuran * p.tempohBulan;
+
+            let html = `
+                <div class="no-print flex justify-between bg-white p-4 border rounded-xl mb-6 shadow-sm">
+                    <button onclick="showList()" class="flex items-center gap-2 text-gray-600 font-bold hover:text-indigo-600 transition"><i data-lucide="arrow-left" class="w-4 h-4"></i> Kembali</button>
+                    <button onclick="window.print()" class="px-6 py-2 bg-indigo-600 text-white rounded-lg flex items-center gap-2 text-xs font-bold shadow-md hover:bg-indigo-700 transition"><i data-lucide="printer" class="w-4 h-4"></i> Cetak PDF / Penyata</button>
+                </div>
+
+                <div class="bg-white p-6 md:p-10 border shadow-lg max-w-6xl mx-auto rounded-2xl">
+                    <div class="print-only text-center mb-10 border-b-2 border-black pb-4">
+                        <h1 class="text-2xl font-black uppercase">PENYATA LEJER PINJAMAN KESEDAR</h1>
+                        <p class="text-xs font-bold uppercase">Lembaga Kemajuan Kelantan Selatan</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-8 border-b pb-6 text-sm">
+                        <div>
+                            <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Butiran Peminjam</p>
+                            <p class="text-xl font-bold text-gray-800">${p.namaPeminjam}</p>
+                            <p class="text-sm font-mono text-gray-500 mt-0.5">No. KP: ${p.noKP || '-'}</p>
+                            <p class="text-xs text-gray-500 mt-1">Tarikh Mula: ${p.tarikh_mula}</p>
+                        </div>
+                        <div class="md:text-right space-y-1">
+                            <p class="text-gray-600">Prinsipal Pokok: <b class="text-gray-900">RM ${parseFloat(p.jumlahPinjaman).toLocaleString(undefined, {minimumFractionDigits:2})}</b></p>
+                            <p class="text-gray-600">Kadar Faedah: <b class="text-gray-900">${p.kadarFaedah}%</b></p>
+                            <p class="text-gray-600">Jumlah Pelunasan: <b class="text-gray-900">RM ${jumlahPelunasan.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</b></p>
+                            <p class="text-xl font-black text-indigo-600 pt-2">Ansuran Bulanan: RM ${ansuran.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-[11px] border border-gray-100">
+                            <thead>
+                                <tr class="bg-gray-100 uppercase text-gray-700">
+                                    <th class="p-2 border text-center">Bulan</th>
+                                    <th class="p-2 border text-left">Tarikh Jangkaan</th>
+                                    <th class="p-2 border text-right">Baki Prinsipal (RM)</th>
+                                    <th class="p-2 border text-right bg-indigo-50/50">Baki Sebenar (RM)</th>
+                                    <th class="p-2 border text-center no-print">Status Tindakan</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+
+            let bakiPrinsipal = p.jumlahPinjaman;
+            let bakiSebenar = jumlahPelunasan;
+            const r = (p.kadarFaedah / 100) / 12;
+
+            for (let i = 1; i <= p.tempohBulan; i++) {
+                const faedahBulanIni = bakiPrinsipal * r;
+                let prinsipalBulanIni = ansuran - faedahBulanIni;
+                
+                if (i === p.tempohBulan) { 
+                    prinsipalBulanIni = bakiPrinsipal; 
+                    bakiPrinsipal = 0; 
+                    bakiSebenar = 0; 
+                } else { 
+                    bakiPrinsipal -= prinsipalBulanIni; 
+                    bakiSebenar -= ansuran; 
+                }
+                
+                const d = new Date(p.tarikh_mula); 
+                d.setMonth(d.getMonth() + i);
+                const sudah = (p.bayaranRekod || []).some(b => b.bulan === i);
+                
+                html += `
+                    <tr class="${sudah ? 'row-paid text-green-900' : 'hover:bg-gray-50'} transition">
+                        <td class="p-2 border text-center font-bold">${i}</td>
+                        <td class="p-2 border font-mono">${d.toISOString().split('T')[0]}</td>
+                        <td class="p-2 border text-right font-mono">${Math.max(0, bakiPrinsipal).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td class="p-2 border text-right font-mono font-bold text-indigo-700 bg-indigo-50/10">${Math.max(0, bakiSebenar).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td class="p-2 border text-center no-print">
+                            ${sudah ? '<span class="text-green-600 font-bold flex items-center justify-center gap-1"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> TELAH BAYAR</span>' : `<button onclick="rekodBayaran(${i})" class="bg-indigo-600 text-white px-3 py-1 rounded text-[9px] font-bold shadow hover:bg-indigo-700 transition">SAHKAN BAYARAN</button>`}
+                        </td>
+                    </tr>`;
+            }
+
+            html += `</tbody></table>
+                    </div>
+                    <div class="print-only print-footer">
+                        <div class="signature-box"><p class="mb-14">Pegawai Pengesah Lejer</p><p class="font-bold">( ............................................ )</p><p class="text-[8px] text-gray-400 mt-1">Lembaga Kemajuan Kelantan Selatan</p></div>
+                        <div class="signature-box"><p class="mb-14">Tandatangan Peminjam</p><p class="font-bold">( ............................................ )</p><p class="text-[8px] text-gray-400 mt-1">Pengesahan Baki Penyata</p></div>
+                    </div>
+                </div>`;
+            
+            view.innerHTML = html;
+            lucide.createIcons();
+        };
+
+        const handleSimpan = async (e) => {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const data = Object.fromEntries(fd.entries());
+            
+            data.id = data.id || Date.now().toString();
+            data.jumlahPinjaman = parseFloat(data.jumlahPinjaman);
+            data.kadarFaedah = parseFloat(data.kadarFaedah);
+            data.tempohBulan = parseInt(data.tempohBulan);
+            
+            const idx = senaraiPeminjam.findIndex(p => p.id === data.id);
+            if (idx > -1) { 
+                data.bayaranRekod = senaraiPeminjam[idx].bayaranRekod || []; 
+                senaraiPeminjam[idx] = data; 
+                tambahLog("Kemaskini Profil Rekod", data.namaPeminjam); 
+            } else { 
+                data.bayaranRekod = []; 
+                senaraiPeminjam.push(data); 
+                tambahLog("Pendaftaran Peminjam Baru", data.namaPeminjam); 
+            }
+            
+            await storage.save(senaraiPeminjam);
+            showList(); 
+            loadSenaraiPeminjam();
+        };
+
+        const rekodBayaran = async (bulan) => {
+            const p = senaraiPeminjam.find(x => x.id === window.peminjamAktifID);
+            if (p && !(p.bayaranRekod || []).some(b => b.bulan === bulan)) {
+                if(!p.bayaranRekod) p.bayaranRekod = [];
+                p.bayaranRekod.push({ bulan, tarikh: new Date().toISOString() });
+                await storage.save(senaraiPeminjam);
+                tambahLog(`Bayaran Bulan Ke-${bulan} Disahkan`, p.namaPeminjam);
+                showDetail(p.id);
+            }
+        };
+
+        const hapusPeminjam = async (id) => {
+            const p = senaraiPeminjam.find(x => x.id === id);
+            if(!p) return;
+            if(confirm(`PERHATIAN: Adakah anda pasti mahu menghapuskan rekod ${p.namaPeminjam}?\nData akan dipadamkan dari Google Sheets dan storan tempatan.`)) {
+                senaraiPeminjam = senaraiPeminjam.filter(x => x.id !== id);
+                await storage.save(senaraiPeminjam);
+                tambahLog("Rekod Peminjam Dipadam", p.namaPeminjam);
+                loadSenaraiPeminjam();
+            }
+        };
+
+        const showList = () => { 
+            document.getElementById('list-view').classList.remove('hidden'); 
+            document.getElementById('form-view').classList.add('hidden'); 
+            document.getElementById('detail-view').classList.add('hidden'); 
+            renderStats(); 
+        };
+        
+        const showForm = (id) => {
+            document.getElementById('list-view').classList.add('hidden'); 
+            document.getElementById('form-view').classList.remove('hidden');
+            
+            const f = document.getElementById('pinjaman-form'); 
+            f.reset(); 
+            document.getElementById('pinjaman-id').value = '';
+            document.getElementById('auto-kira-info').classList.add('hidden');
+            
+            if (id) {
+                const p = senaraiPeminjam.find(x => x.id === id);
+                if(p) {
+                    document.getElementById('pinjaman-id').value = p.id; 
+                    document.getElementById('namaPeminjam').value = p.namaPeminjam;
+                    document.getElementById('noKP').value = p.noKP || ''; 
+                    document.getElementById('jumlahPinjaman').value = p.jumlahPinjaman;
+                    document.getElementById('tempohBulan').value = p.tempohBulan; 
+                    document.getElementById('kadarFaedah').value = p.kadarFaedah;
+                    document.getElementById('tarikh_mula').value = p.tarikh_mula;
+                    
+                    const event = new Event('input');
+                    document.getElementById('pinjaman-form').dispatchEvent(event);
+                }
+            }
+        };
+
+        window.backupData = () => { 
+            if(senaraiPeminjam.length === 0) { alert("Tiada data untuk di-backup."); return; }
+            const blob = new Blob([JSON.stringify(senaraiPeminjam, null, 2)], {type: 'application/json'}); 
+            const a = document.createElement('a'); 
+            a.href = URL.createObjectURL(blob); 
+            a.download = `backup_kesedar_${new Date().toISOString().split('T')[0]}.json`; 
+            a.click(); 
+        };
+        
+        window.restoreData = (e) => {
+            const file = e.target.files[0]; 
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+                try {
+                    const data = JSON.parse(ev.target.result);
+                    if(Array.isArray(data)) {
+                        await storage.save(data); 
+                        senaraiPeminjam = data;
+                        tambahLog("Pangkalan Data Dipulihkan (Restore)", "Sistem"); 
+                        loadSenaraiPeminjam();
+                        alert("Data JSON berjaya dipulihkan & dimuat naik ke Google Sheets!");
+                    } else {
+                        alert("Format fail backup JSON tidak sah!");
+                    }
+                } catch (err) { 
+                    alert("Gagal membaca fail backup!"); 
+                }
+                e.target.value = '';
+            };
+            reader.readAsText(file);
+        };
+
+        window.exportToCSV = () => {
+            if(senaraiPeminjam.length === 0) { alert("Tiada data untuk dieksport."); return; }
+            const rows = [["Nama Peminjam", "No KP", "Jumlah Prinsipal (RM)", "Status Semasa"], ...senaraiPeminjam.map(p => [p.namaPeminjam, p.noKP || '-', p.jumlahPinjaman, tentukanStatusPinjaman(p).label])];
+            const content = rows.map(e => e.map(val => `"${val.toString().replace(/"/g, '""')}"`).join(",")).join("\n");
+            const a = document.createElement('a'); 
+            a.href = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8;' })); 
+            a.download = `lejer_peminjam_${new Date().toISOString().split('T')[0]}.csv`; 
+            a.click();
+        };
+
+        window.padamLog = () => { 
+            if(confirm('Adakah anda pasti mahu mengosongkan semua sejarah audit log?')) { 
+                localStorage.removeItem(LOG_KEY); 
+                renderLogs(); 
+            } 
+        };
+        
+        window.handleSearch = () => { 
+            const q = document.getElementById('searchInput').value.toLowerCase(); 
+            const filtered = senaraiPeminjam.filter(p => p.namaPeminjam.toLowerCase().includes(q) || (p.noKP && p.noKP.includes(q)));
+            renderListView(filtered); 
+        };
+        
+        document.getElementById('pinjaman-form').addEventListener('input', () => {
+            const p = parseFloat(document.getElementById('jumlahPinjaman').value) || 0;
+            const r = parseFloat(document.getElementById('kadarFaedah').value) || 0;
+            const n = parseInt(document.getElementById('tempohBulan').value) || 0;
+            const infoBox = document.getElementById('auto-kira-info');
+            
+            if (p > 0 && n > 0) { 
+                infoBox.classList.remove('hidden');
+                infoBox.innerText = `Anggaran Ansuran Bulanan: RM ${hitungBayaranBulanan(p, r, n).toFixed(2)}`; 
+            } else {
+                infoBox.classList.add('hidden');
+            }
+        });
+
+        window.onload = loadSenaraiPeminjam;
+    </script>
+</body>
+</html>
